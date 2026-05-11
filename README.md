@@ -1,6 +1,6 @@
 # 🚗 Oldtimers XRPL NFT RWA Microservice
 
-**XRPL-based microservice for minting and managing Real World Asset (RWA) “Vehicle Passport” NFTs using real-time vehicle metadata.**
+**XRPL-based microservice for minting and managing Real World Asset (RWA) “Digital Vehicle Passport” NFTs using real-time vehicle metadata.**
 
 ---
 
@@ -8,7 +8,7 @@
 
 The **Oldtimers XRPL NFT RWA Microservice** is a dedicated backend service responsible for bridging real-world vehicle data with the XRP Ledger by minting NFTs that represent physical assets.
 
-Each NFT acts as a **Vehicle Passport** — a verifiable, on-chain representation of a classic vehicle, containing structured metadata and references to off-chain media.
+Each NFT acts as a **Digital Vehicle Passport** — a verifiable, on-chain representation of a classic vehicle, containing structured metadata and references to off-chain media.
 
 This microservice is a core component of the **Oldtimers Offer** ecosystem, enabling scalable and secure tokenization of real-world assets.
 
