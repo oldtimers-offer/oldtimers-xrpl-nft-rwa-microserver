@@ -167,7 +167,6 @@ impl VehiclePassportMinter {
             .as_ref()
             .ok_or_else(|| anyhow!("Missing tx hash"))?;
 
-        // ⏳ čekanje + retry
         let mut attempts = 0;
         let max_attempts = 10;
 
@@ -182,8 +181,6 @@ impl VehiclePassportMinter {
                     }
 
                     attempts += 1;
-
-                    println!("⏳ Waiting for XRPL validation... attempt {}", attempts);
 
                     time::sleep(std::time::Duration::from_secs(2)).await;
                 }

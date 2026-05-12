@@ -7,6 +7,7 @@ pub struct VehicleRow {
     pub make_display: Option<String>,
     pub model_name: Option<String>,
     pub vehicle_type: Option<String>,
+    pub listing_state: Option<String>,
     pub odometer: Option<i32>,
     pub color: Option<String>,
     pub country_location: Option<String>,
@@ -27,6 +28,8 @@ pub struct VehiclePhotoRow {
 pub struct VehicleNftRow {
     pub vehicle_id: u64,
     pub nft_id: String,
+    pub tx_hash: String,
+    pub network: String,
 }
 
 pub async fn fetch_vehicle_by_id(
@@ -42,6 +45,7 @@ pub async fn fetch_vehicle_by_id(
             model_name,
             vehicle_description,
             vehicle_type,
+            listing_state,
             odometer,
             color,
             country_location
@@ -89,7 +93,7 @@ pub async fn find_vehicle_nft(
 ) -> Result<Option<VehicleNftRow>, sqlx::Error> {
     let row = sqlx::query_as::<_, VehicleNftRow>(
         r#"
-        SELECT vehicle_id, nft_id
+        SELECT vehicle_id, nft_id, tx_hash, network
         FROM wp_vehicle_nfts
         WHERE vehicle_id = ?
         LIMIT 1

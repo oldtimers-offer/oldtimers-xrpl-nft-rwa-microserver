@@ -7,8 +7,8 @@ use crate::metadata::{
     Attribute, Identifiers, Issuer, AppInfo,Media, Mileage, Vehicle, VehicleMetadata,
 };
 use crate::xrpl::VehiclePassportMinter;
-
 use crate::db::{find_vehicle_nft, insert_vehicle_nft};
+use crate::redis_lock::{try_lock_minting, release_minting_lock};
 
 fn slugify(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
@@ -57,6 +57,10 @@ fn build_vehicle_metadata(vehicle: &VehicleRow, photo: Option<&VehiclePhotoRow>,
         .vehicle_type
         .clone()
         .unwrap_or_else(|| "Vehicle".to_string());
+    let listing_type = vehicle
+        .listing_state
+        .clone()
+        .unwrap_or_else(|| "For Sale".to_string());
     let color = vehicle
         .color
         .clone()
@@ -113,6 +117,14 @@ fn build_vehicle_metadata(vehicle: &VehicleRow, photo: Option<&VehiclePhotoRow>,
                 value: serde_json::json!(vehicle_type),
             },
             Attribute {
+                trait_type: "Listing Type".to_string(),
+                value: serde_json::json!(
+                    vehicle.listing_state
+                        .clone()
+                        .unwrap_or_else(|| "For Sale".to_string())
+                ),
+            },
+            Attribute {
                 trait_type: "Make".to_string(),
                 value: serde_json::json!(make),
             },
@@ -135,6 +147,7 @@ fn build_vehicle_metadata(vehicle: &VehicleRow, photo: Option<&VehiclePhotoRow>,
         ],
         vehicle: Vehicle {
             vehicle_type: vehicle_type.to_lowercase(),
+            listing_type: listing_type.to_lowercase(),
             make,
             model,
             year,
@@ -184,6 +197,7 @@ pub async fn mint_vehicle_nft(
     req: HttpRequest,
     path: web::Path<u64>,
     pool: web::Data<MySqlPool>,
+    redis_client: web::Data<redis::Client>,
 ) -> impl Responder {
 
     let expected_key = env::var("XRPL_API_KEY").unwrap_or_default();
@@ -207,14 +221,31 @@ pub async fn mint_vehicle_nft(
 
     let vehicle_id = path.into_inner();
 
+    let mut redis_conn = match redis_client.get_multiplexed_async_connection().await {
+        Ok(c) => c,
+        Err(_) => return HttpResponse::InternalServerError().json(serde_json::json!({
+            "success": false,
+            "error": "Redis connection failed"
+        })),
+    };
+
+    if !try_lock_minting(&mut redis_conn, vehicle_id).await {
+        return HttpResponse::TooManyRequests().json(serde_json::json!({
+            "success": false,
+            "error": "Minting already in progress for this vehicle"
+        }));
+    }
+
     let vehicle = match fetch_vehicle_by_id(&pool, vehicle_id).await {
         Ok(Some(v)) => v,
         Ok(None) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             return HttpResponse::NotFound().json(serde_json::json!({
                 "error": "Vehicle not found"
             }));
         }
         Err(err) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": "Database error",
                 "details": err.to_string()
@@ -225,6 +256,7 @@ pub async fn mint_vehicle_nft(
     let seed = match env::var("XRPL_SEED") {
         Ok(v) => v,
         Err(_) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": "XRPL_SEED is not set"
             }));
@@ -234,6 +266,7 @@ pub async fn mint_vehicle_nft(
     let node_url = match env::var("XRPL_NODE_URL") {
         Ok(v) => v,
         Err(_) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": "XRPL_NODE_URL is not set"
             }));
@@ -243,6 +276,7 @@ pub async fn mint_vehicle_nft(
     let base_url = match env::var("XRPL_BASE_URL") {
         Ok(v) => v,
         Err(_) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": "XRPL_BASE_URL is not set"
             }));
@@ -255,6 +289,7 @@ pub async fn mint_vehicle_nft(
 
     match find_vehicle_nft(&pool, vehicle_id).await {
         Ok(Some(existing)) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             return HttpResponse::BadRequest().json(serde_json::json!({
                 "success": false,
                 "error": "Vehicle already has NFT",
@@ -263,6 +298,7 @@ pub async fn mint_vehicle_nft(
         }
         Ok(None) => {}
         Err(err) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "success": false,
                 "error": "Database error while checking existing NFT",
@@ -283,6 +319,7 @@ pub async fn mint_vehicle_nft(
                 &metadata_url,
                 "mainnet",
             ).await {
+                release_minting_lock(&mut redis_conn, vehicle_id).await;
                 return HttpResponse::InternalServerError().json(serde_json::json!({
                     "success": false,
                     "error": format!("NFT minted but DB insert failed: {}", err),
@@ -291,6 +328,8 @@ pub async fn mint_vehicle_nft(
                     "uri": result.uri
                 }));
             }
+
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
 
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
@@ -301,6 +340,7 @@ pub async fn mint_vehicle_nft(
             }))
         }
         Err(err) => {
+            release_minting_lock(&mut redis_conn, vehicle_id).await;
             HttpResponse::InternalServerError().json(serde_json::json!({
                 "success": false,
                 "error": err.to_string()

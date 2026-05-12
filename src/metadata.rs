@@ -48,6 +48,7 @@ pub struct Attribute {
 pub struct Vehicle {
     #[serde(rename = "type")]
     pub vehicle_type: String,
+    pub listing_type: String,
     pub make: String,
     pub model: String,
     pub year: u32,
